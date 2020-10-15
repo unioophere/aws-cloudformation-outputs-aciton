@@ -1,16 +1,42 @@
 import * as core from '@actions/core'
-import {wait} from './wait'
+import * as aws from 'aws-sdk'
 
-async function run(): Promise<void> {
+const clientConfiguration = {
+  customUserAgent: 'aws-cloudformation-outputs-for-github-actions'
+}
+
+export type Inputs = {
+  [key: string]: string
+}
+
+export async function run(): Promise<void> {
   try {
-    const ms: string = core.getInput('milliseconds')
-    core.debug(`Waiting ${ms} milliseconds ...`) // debug is only output if you set the secret `ACTIONS_RUNNER_DEBUG` to true
+    const cfn = new aws.CloudFormation({...clientConfiguration})
 
-    core.debug(new Date().toTimeString())
-    await wait(parseInt(ms, 10))
-    core.debug(new Date().toTimeString())
+    const stackName = core.getInput('stack-name', {required: true})
 
-    core.setOutput('time', new Date().toTimeString())
+    const result = await cfn
+      .describeStacks({
+        StackName: stackName
+      })
+      .promise()
+
+    if (!result.Stacks?.length) {
+      throw new Error(`Cannot find stack with name ${stackName}`)
+    }
+
+    const {Outputs: outputs} = result.Stacks[0]
+    if (!outputs) {
+      core.info('no outputs')
+      return
+    }
+
+    for (const output of outputs) {
+      if (output.OutputKey) {
+        core.info(`${output.OutputKey}: ${output.OutputValue}`)
+        core.setOutput(output.OutputKey, output.OutputValue)
+      }
+    }
   } catch (error) {
     core.setFailed(error.message)
   }

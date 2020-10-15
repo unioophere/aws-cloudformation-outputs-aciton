@@ -1,27 +1,158 @@
-import {wait} from '../src/wait'
-import * as process from 'process'
-import * as cp from 'child_process'
+import {run, Inputs} from '../src/main'
 import * as path from 'path'
+import * as core from '@actions/core'
+import * as fs from 'fs'
+import * as aws from 'aws-sdk'
 
-test('throws invalid number', async () => {
-  const input = parseInt('foo', 10)
-  await expect(wait(input)).rejects.toThrow('milliseconds not a number')
-})
+jest.mock('@actions/core')
+jest.mock('fs')
 
-test('wait 500 ms', async () => {
-  const start = new Date()
-  await wait(500)
-  const end = new Date()
-  var delta = Math.abs(end.getTime() - start.getTime())
-  expect(delta).toBeGreaterThan(450)
-})
+const mockTemplate = `
+AWSTemplateFormatVersion: "2010-09-09"
+Metadata:
+    LICENSE: MIT
+Parameters:
+    AdminEmail:
+    Type: String
+Resources:
+    CFSNSSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+        Endpoint: !Ref AdminEmail
+        Protocol: email
+        TopicArn: !Ref CFSNSTopic
+    CFSNSTopic:
+    Type: AWS::SNS::Topic
+Outputs:
+    CFSNSTopicArn:
+    Value: !Ref CFSNSTopic
+`
 
-// shows how the runner will run a javascript action with env / stdout protocol
-test('test runs', () => {
-  process.env['INPUT_MILLISECONDS'] = '500'
-  const ip = path.join(__dirname, '..', 'lib', 'main.js')
-  const options: cp.ExecSyncOptions = {
-    env: process.env
+const mockDescribeStacks = jest.fn()
+jest.mock('aws-sdk', () => {
+  return {
+    CloudFormation: jest.fn(() => ({
+      describeStacks: mockDescribeStacks
+    }))
   }
-  console.log(cp.execSync(`node ${ip}`, options).toString())
+})
+
+describe('Deploy CloudFormation Stack', () => {
+  const inputs: Inputs = {
+    'stack-name': 'my-stack-name'
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+
+    jest.spyOn(core, 'getInput').mockImplementation((name: string) => {
+      return inputs[name]
+    })
+
+    process.env = Object.assign(process.env, {GITHUB_WORKSPACE: __dirname})
+
+    jest.spyOn(fs, 'readFileSync').mockImplementation((pathInput, encoding) => {
+      const {GITHUB_WORKSPACE = ''} = process.env
+
+      if (encoding != 'utf8') {
+        throw new Error(`Wrong encoding ${encoding}`)
+      }
+
+      if (pathInput == path.join(GITHUB_WORKSPACE, 'template.yaml')) {
+        return mockTemplate
+      }
+
+      throw new Error(`Unknown path ${pathInput}`)
+    })
+  })
+
+  test('fail on describe function error', async () => {
+    mockDescribeStacks.mockReset()
+    mockDescribeStacks.mockImplementation(() => {
+      const err: aws.AWSError = new Error(
+        'The stack does not exist.'
+      ) as aws.AWSError
+      err.code = 'ValidationError'
+      throw err
+    })
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledTimes(1)
+  })
+
+  test('sets the stack outputs as action outputs', async () => {
+    mockDescribeStacks.mockReset()
+    mockDescribeStacks.mockImplementation(() => {
+      return {
+        promise(): Promise<aws.CloudFormation.Types.DescribeStacksOutput> {
+          return Promise.resolve({
+            Stacks: [
+              {
+                StackId:
+                  'arn:aws:cloudformation:us-east-1:123456789012:stack/myteststack/466df9e0-0dff-08e3-8e2f-5088487c4896',
+                Tags: [],
+                Outputs: [
+                  {
+                    OutputKey: 'hello',
+                    OutputValue: 'world'
+                  },
+                  {
+                    OutputKey: 'foo',
+                    OutputValue: 'bar'
+                  }
+                ],
+                StackStatusReason: '',
+                CreationTime: new Date('2013-08-23T01:02:15.422Z'),
+                Capabilities: [],
+                StackName: 'MockStack',
+                StackStatus: 'CREATE_COMPLETE'
+              }
+            ]
+          })
+        }
+      }
+    })
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledTimes(0)
+    expect(mockDescribeStacks).toHaveBeenCalledTimes(1)
+    expect(mockDescribeStacks).toHaveBeenCalledWith({
+      StackName: inputs['stack-name']
+    })
+    expect(core.setOutput).toHaveBeenCalledTimes(2)
+    expect(core.setOutput).toHaveBeenNthCalledWith(1, 'hello', 'world')
+    expect(core.setOutput).toHaveBeenNthCalledWith(2, 'foo', 'bar')
+  })
+
+  test('sets the stack empty outputs as action outputs', async () => {
+    mockDescribeStacks.mockReset()
+    mockDescribeStacks.mockImplementation(() => {
+      return {
+        promise(): Promise<aws.CloudFormation.Types.DescribeStacksOutput> {
+          return Promise.resolve({
+            Stacks: [
+              {
+                StackId:
+                  'arn:aws:cloudformation:us-east-1:123456789012:stack/myteststack/466df9e0-0dff-08e3-8e2f-5088487c4896',
+                Tags: [],
+                Outputs: [],
+                StackStatusReason: '',
+                CreationTime: new Date('2013-08-23T01:02:15.422Z'),
+                Capabilities: [],
+                StackName: 'MockStack',
+                StackStatus: 'CREATE_COMPLETE'
+              }
+            ]
+          })
+        }
+      }
+    })
+    await run()
+
+    expect(core.setFailed).toHaveBeenCalledTimes(0)
+    expect(mockDescribeStacks).toHaveBeenCalledWith({
+      StackName: inputs['stack-name']
+    })
+    expect(core.setOutput).toHaveBeenCalledTimes(0)
+  })
 })

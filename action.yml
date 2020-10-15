@@ -1,11 +1,10 @@
-name: 'Your name here'
-description: 'Provide a description here'
-author: 'Your name or organization here'
+name: namse
+description: 'get aws cloudformation stack outputs'
+author: namse
 inputs:
-  milliseconds: # change this
+  stack-name:
     required: true
-    description: 'input description here'
-    default: 'default value if applicable'
+    description: 'aws cloudformation stack name'
 runs:
   using: 'node12'
   main: 'dist/index.js'
