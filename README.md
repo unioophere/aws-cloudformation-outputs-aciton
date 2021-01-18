@@ -1,5 +1,7 @@
 # aws cloudformation outputs action
 
+![Test](https://github.com/unioophere/aws-cloudformation-outputs-action/workflows/Test/badge.svg)
+
 This action set AWS Cloudformation stack outputs as github action outputs.
 
 ## Inputs
