@@ -32,9 +32,9 @@ export async function run(): Promise<void> {
     }
 
     for (const output of outputs) {
-      if (output.OutputKey) {
-        core.info(`${output.OutputKey}: ${output.OutputValue}`)
-        core.setOutput(output.OutputKey, output.OutputValue)
+      if (output.ExportName) {
+        core.info(`${output.ExportName}: ${output.OutputValue}`)
+        core.setOutput(output.ExportName, output.OutputValue)
       }
     }
   } catch (error) {
