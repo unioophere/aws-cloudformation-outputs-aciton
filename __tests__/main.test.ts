@@ -93,11 +93,11 @@ describe('Deploy CloudFormation Stack', () => {
                 Tags: [],
                 Outputs: [
                   {
-                    OutputKey: 'hello',
+                    ExportName: 'hello',
                     OutputValue: 'world'
                   },
                   {
-                    OutputKey: 'foo',
+                    ExportName: 'foo',
                     OutputValue: 'bar'
                   }
                 ],
